@@ -130,11 +130,13 @@ def download_list(url):
         print(f"[WARN] Could not fetch {url}: {e}")
         return set()
 
-def load_cached_ips():
-    if not os.path.exists(CACHE_FILE):
+def load_cached_ips(cache_path=None):
+    if cache_path is None:
+        cache_path = CACHE_FILE
+    if not os.path.exists(cache_path):
         return {}
     cached = {}
-    with open(CACHE_FILE, 'r') as f:
+    with open(cache_path, 'r') as f:
         for line in f:
             line = line.strip()
             if not line:
@@ -147,19 +149,21 @@ def load_cached_ips():
                 cached[line] = "UNKNOWN"
     return cached
 
-def append_to_cache(entries):
+def append_to_cache(entries, cache_path=None):
     if not entries:
         return
-    with open(CACHE_FILE, 'a', encoding='utf-8') as f:
+    if cache_path is None:
+        cache_path = CACHE_FILE
+    with open(cache_path, 'a', encoding='utf-8') as f:
         for ip, t in entries.items():
             # Safety filter: only allow real IPs/CIDRs and clean types
             if isinstance(ip, str) and ('/' in ip or ip.replace('.', '').replace(':', '').isdigit()):
                 safe_type = t.replace('|', '').replace('\n', '').strip()
                 f.write(f"{ip}|{safe_type}\n")
 
-def refresh_cache():
+def refresh_cache(cache_path=None):
     typed_sources = load_sources()
-    cached = load_cached_ips()
+    cached = load_cached_ips(cache_path)
     total_new = {}
     
     # Dynamically replace Azure URL with the latest one
@@ -177,7 +181,7 @@ def refresh_cache():
                 total_new.update(new_entries)
                 cached.update(new_entries)
 
-    append_to_cache(total_new)
+    append_to_cache(total_new, cache_path)
     print(f"[✓] Cache updated with {len(total_new)} new entries.")
     return cached, len(total_new)  # Changed: Return tuple (data, count)
 
