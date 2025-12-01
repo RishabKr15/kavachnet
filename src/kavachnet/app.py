@@ -47,7 +47,7 @@ st.markdown("""
 
 # ────────────────────────────────────────────────────────────────
 # Header
-st.markdown('<p class="big-font">KavachNET by Rishabh KRW</p>', unsafe_allow_html=True)
+st.markdown('<p class="big-font">KavachNet by Rishabh KRW</p>', unsafe_allow_html=True)
 st.markdown("<h3 style='text-align: center;'>🛡️KavachNet: An Advanced VPN • Proxy • Tor • Cloud Detector</h3>", unsafe_allow_html=True)
 
 # ────────────────────────────────────────────────────────────────
