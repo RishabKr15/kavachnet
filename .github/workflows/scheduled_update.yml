@@ -1,0 +1,59 @@
+name: Weekly Data Update
+
+on:
+  schedule:
+    - cron: '0 0 * * 0' # Run every Sunday at midnight UTC
+  workflow_dispatch: # Allow manual trigger from GitHub UI
+
+jobs:
+  update-and-publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # Required to push changes back to the repo
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.11"
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install build
+        if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+
+    - name: Run Enrichment Script
+      run: python scripts/enrich_data.py
+
+    - name: Check for changes
+      id: check_changes
+      run: |
+        if git diff --quiet pyproject.toml; then
+          echo "No version change detected."
+          echo "changes=false" >> $GITHUB_OUTPUT
+        else
+          echo "Version bumped!"
+          echo "changes=true" >> $GITHUB_OUTPUT
+        fi
+
+    - name: Commit and Push
+      if: steps.check_changes.outputs.changes == 'true'
+      run: |
+        git config --global user.name "github-actions[bot]"
+        git config --global user.email "github-actions[bot]@users.noreply.github.com"
+        git add .
+        git commit -m "Auto-update VPN data and bump version [skip ci]"
+        git push
+
+    - name: Build package
+      if: steps.check_changes.outputs.changes == 'true'
+      run: python -m build
+
+    - name: Publish to PyPI
+      if: steps.check_changes.outputs.changes == 'true'
+      uses: pypa/gh-action-pypi-publish@release/v1
+      with:
+        password: ${{ secrets.PYPI_API_TOKEN }}

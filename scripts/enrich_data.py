@@ -44,7 +44,11 @@ def main():
         DATA_FILE.touch()
 
     # Run the enrichment
-    refresh_cache(cache_path=str(DATA_FILE))
+    _, new_count = refresh_cache(cache_path=str(DATA_FILE))
+    
+    if new_count == 0:
+        print("No new IPs found. Skipping version bump.")
+        return
     
     print(f"\n--- Bumping Version ---")
     # Get current version from pyproject.toml
