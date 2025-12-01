@@ -1,19 +1,21 @@
 # KavachNet
 
-KavachNet is an AI-based VPN & Proxy Detector tool.
+[![PyPI version](https://badge.fury.io/py/kavachnet.svg)](https://badge.fury.io/py/kavachnet)
+[![Python Versions](https://img.shields.io/pypi/pyversions/kavachnet.svg)](https://pypi.org/project/kavachnet/)
+[![License](https://img.shields.io/pypi/l/kavachnet.svg)](https://pypi.org/project/kavachnet/)
+
+**KavachNet** is a lightweight, AI-based VPN & Proxy detection tool. It helps identify if an IP address belongs to a known data center, VPN provider, or cloud infrastructure (like Azure, AWS, etc.).
+
+## Features
+
+*   **Web Interface**: A built-in Streamlit dashboard to check IPs visually.
+*   **Python API**: Easy-to-use functions to integrate into your own Python applications.
+*   **Auto-Updates**: Fetches the latest IP ranges from public sources (e.g., Azure Service Tags).
+*   **Caching**: Caches IP lists locally to improve performance and reduce network calls.
 
 ## Installation
 
-```bash
-pip install kavachnet
-```
-Usage
-To launch the web interface:
-# KavachNet
-
-KavachNet is an AI-based VPN & Proxy Detector tool.
-
-## Installation
+Install the package via pip:
 
 ```bash
 pip install kavachnet
@@ -21,16 +23,42 @@ pip install kavachnet
 
 ## Usage
 
-To launch the web interface:
+### 1. Web Interface (CLI)
+
+To launch the interactive web dashboard:
 
 ```bash
 kavachnet-web
 ```
 
-## Features
-- Detect VPN and Proxy IP addresses
-- Web-based interface using Streamlit
+### 2. Python API
 
-Features
-* Detect VPN and Proxy IP addresses
-* Web-based interface using Streamlit
+You can use `kavachnet` directly in your Python scripts to check IP addresses.
+
+```python
+from kavachnet import is_vpn_ip, refresh_cache
+
+# Check a single IP
+ip_to_check = "8.8.8.8"
+result = is_vpn_ip(ip_to_check)
+
+if result:
+    print(f"{ip_to_check} is a VPN/Data Center IP!")
+else:
+    print(f"{ip_to_check} appears to be a residential or unknown IP.")
+
+# Force update the local cache of VPN IP ranges
+refresh_cache()
+```
+
+## How It Works
+
+KavachNet aggregates public IP ranges from major cloud providers and VPN services. When you check an IP, it verifies if the IP falls within these known subnets.
+
+## Contributing
+
+Contributions are welcome! Please feel free to submit a Pull Request on [GitHub](https://github.com/RishabKr15/kavachnet).
+
+## License
+
+This project is licensed under the MIT License.
