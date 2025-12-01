@@ -21,3 +21,6 @@ dependencies = [
 [project.scripts]
 kavachnet-web = "kavachnet.cli:main"
 
+[tool.setuptools.package-data]
+kavachnet = ["data/*.json", "data/*.txt"]
+
