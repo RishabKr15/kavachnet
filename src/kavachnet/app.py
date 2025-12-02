@@ -15,11 +15,11 @@ if str(CURRENT_DIR) not in sys.path:
 # Try importing the logic
 try:
     # Attempt absolute import (if installed as package)
-    from kavachnet.vpn_checker import refresh_cache, load_networks_from_cache, is_vpn_ip, CACHE_FILE
+    from kavachnet.vpn_checker import refresh_cache, load_networks_from_cache, is_vpn_ip, load_cached_ips, CACHE_FILE
 except ImportError:
     try:
         # Attempt local import (if running from source)
-        from vpn_checker import refresh_cache, load_networks_from_cache, is_vpn_ip, CACHE_FILE
+        from vpn_checker import refresh_cache, load_networks_from_cache, is_vpn_ip, load_cached_ips, CACHE_FILE
     except ImportError as e:
         st.error(f"Critical Error: Could not import vpn_checker. Details: {e}")
         st.stop()
