@@ -30,7 +30,7 @@ SOURCES_JSON = CURRENT_DIR / "data" / "vpn_sources.json"
 # ────────────────────────────────────────────────────────────────
 # Streamlit Page Config
 st.set_page_config(
-    page_title="KAVACHNET BY RISHABH_KRW",
+    page_title="KAVACHNET",
     page_icon="🛡️",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -47,13 +47,23 @@ st.markdown("""
 
 # ────────────────────────────────────────────────────────────────
 # Header
-st.markdown('<p class="big-font">KavachNet by Rishabh KRW</p>', unsafe_allow_html=True)
-st.markdown("<h3 style='text-align: center;'>🛡️KavachNet: An Advanced VPN • Proxy • Tor • Cloud Detector</h3>", unsafe_allow_html=True)
+st.markdown('<p class="big-font">KavachNet </p>', unsafe_allow_html=True)
+st.markdown("<h3 style='text-align: center;'>🛡️KavachNet: VPN & Proxy Detection System by Rishabh KRW</h3>", unsafe_allow_html=True)
 
 # ────────────────────────────────────────────────────────────────
 # Sidebar – Sources
 with st.sidebar:
     st.header("🌍 Data Sources")
+    
+    # Update Button in Sidebar
+    if st.button("🔄 Update Database Now"):
+        with st.spinner("Fetching latest IP lists..."):
+            try:
+                _, new_count = refresh_cache()
+                st.success(f"Database updated! {new_count} new entries.")
+            except Exception as e:
+                st.error(f"Update failed: {e}")
+
     if SOURCES_JSON.exists():
         try:
             with open(SOURCES_JSON, 'r') as f:
@@ -92,11 +102,12 @@ with col1:
             status_container = st.empty()
             
             try:
-                with st.spinner("🔄 Synchronizing Intelligence Database..."):
-                    # 1. Update Cache
-                    cached_data, new_count = refresh_cache()
+                # Removed automatic refresh_cache() call to improve performance
                 
                 with st.spinner("⚙️ Analyzing Network Signatures..."):
+                    # 1. Load Local Cache (Fast)
+                    cached_data = load_cached_ips()
+                    
                     # 2. Load Networks
                     networks = load_networks_from_cache(cached_data)
                     
@@ -113,9 +124,6 @@ with col1:
                 else:
                     st.success(f"### ✅ CLEAN IP")
                     st.markdown(f"The IP `{ip_input}` does not match any known VPN, Proxy, or Cloud signatures.")
-                
-                # Footer stats
-                st.toast(f"Database updated: {new_count} new entries added.", icon="✅")
                 
             except Exception as e:
                 st.error(f"An execution error occurred: {e}")
