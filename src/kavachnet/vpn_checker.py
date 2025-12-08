@@ -9,18 +9,26 @@ import re
 import csv
 
 # --- PATH CONFIGURATION ---
-# Get the directory where this script is installed (src/kavachnet)
+# 1. Get the directory where this script is installed (for read-only config)
 PACKAGE_DIR = os.path.dirname(os.path.abspath(__file__))
-DATA_DIR = os.path.join(PACKAGE_DIR, "data")
+PACKAGE_DATA_DIR = os.path.join(PACKAGE_DIR, "data")
 
-# Ensure data directory exists
-os.makedirs(DATA_DIR, exist_ok=True)
+# 2. Define the Writable Data Directory (User's Home Directory)
+# We use the user's home folder to avoid "Permission Denied" errors in site-packages
+USER_HOME = os.path.expanduser("~")
+USER_DATA_DIR = os.path.join(USER_HOME, ".kavachnet")
+
+# Ensure user data directory exists
+os.makedirs(USER_DATA_DIR, exist_ok=True)
 
 # --- FILE PATHS ---
-CACHE_FILE = os.path.join(DATA_DIR, "vpn_ip_list.txt")
-SOURCE_FILE = os.path.join(DATA_DIR, "vpn_sources.json")
-ASN_FILE_V4 = os.path.join(DATA_DIR, "asn_ipv4.csv")
-ASN_FILE_V6 = os.path.join(DATA_DIR, "asn_ipv6.csv")
+# Read-only source config (shipped with package)
+SOURCE_FILE = os.path.join(PACKAGE_DATA_DIR, "vpn_sources.json")
+
+# Writable data files (downloaded at runtime)
+CACHE_FILE = os.path.join(USER_DATA_DIR, "vpn_ip_list.txt")
+ASN_FILE_V4 = os.path.join(USER_DATA_DIR, "asn_ipv4.csv")
+ASN_FILE_V6 = os.path.join(USER_DATA_DIR, "asn_ipv6.csv")
 
 TIMEOUT = 15  # seconds for HTTP requests
 HEADERS = {

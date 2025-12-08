@@ -4,7 +4,7 @@
 [![Python Versions](https://img.shields.io/pypi/pyversions/kavachnet.svg)](https://pypi.org/project/kavachnet/)
 [![License](https://img.shields.io/pypi/l/kavachnet.svg)](https://pypi.org/project/kavachnet/)
 
-**KavachNet** is a lightweight, real-time IP intelligence tool that instantly flags VPNs, proxies, and cloud-hosted IPs. It recognizes addresses from major providers like AWS, Azure, and Google Cloud to help secure your application against anonymized traffic.Developed by Rishabh KRW.
+**KavachNet** is a lightweight, real-time IP intelligence tool that instantly flags VPNs, proxies, and cloud-hosted IPs. It recognizes addresses from major providers like AWS, Azure, and Google Cloud to help secure your application against anonymized traffic. Developed and maintained by Rishabh KRW.
 
 ## Features
 
@@ -53,7 +53,7 @@ refresh_cache()
 
 ## How It Works
 
-KavachNet aggregates public IP ranges from major cloud hosting services and VPN services. When you check an IP, it verifies if the IP falls within these known subnets.Built and maintained by Rishabh KRW.
+KavachNet aggregates public IP ranges from major cloud hosting services and VPN services. When you check an IP, it verifies if the IP falls within these known subnets. Built and maintained by Rishabh KRW.
 
 ## Contributing
 
