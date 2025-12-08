@@ -6,58 +6,135 @@ import os
 import sys
 import json
 import re
+import csv
 
 # --- PATH CONFIGURATION ---
-# 1. Get the directory where this script is installed (e.g., inside site-packages)
+# Get the directory where this script is installed (src/kavachnet)
 PACKAGE_DIR = os.path.dirname(os.path.abspath(__file__))
+DATA_DIR = os.path.join(PACKAGE_DIR, "data")
 
-# 2. Define the Read-Only Config Source (packaged with your code)
-SOURCE_FILE = os.path.join(PACKAGE_DIR, "data", "vpn_sources.json")
+# Ensure data directory exists
+os.makedirs(DATA_DIR, exist_ok=True)
 
-# 3. Define the Writable Cache Location (User's Home Directory)
-# We use the user's home folder to avoid "Permission Denied" errors in Program Files
-USER_HOME = os.path.expanduser("~")
-WORK_DIR = os.path.join(USER_HOME, ".kavachnet")
+# --- FILE PATHS ---
+CACHE_FILE = os.path.join(DATA_DIR, "vpn_ip_list.txt")
+SOURCE_FILE = os.path.join(DATA_DIR, "vpn_sources.json")
+ASN_FILE_V4 = os.path.join(DATA_DIR, "asn_ipv4.csv")
+ASN_FILE_V6 = os.path.join(DATA_DIR, "asn_ipv6.csv")
 
-# Create the hidden directory if it doesn't exist
-if not os.path.exists(WORK_DIR):
-    try:
-        os.makedirs(WORK_DIR)
-    except OSError as e:
-        print(f"[ERROR] Could not create cache directory at {WORK_DIR}: {e}")
-
-CACHE_FILE = os.path.join(WORK_DIR, "vpn_ip_list.txt")
-
-TIMEOUT = 15
+TIMEOUT = 15  # seconds for HTTP requests
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36"
 }
-# ---------------------------
 
-# ... (Keep the rest of your functions: get_latest_azure, load_sources, etc. exactly the same) ...
+# --- ASN / HOSTING LOGIC ---
 
-def get_latest_azure():
-    """Fetch the latest Azure ServiceTags JSON filename dynamically."""
+def get_session():
+    session = requests.Session()
+    retry = Retry(
+        total=3,
+        backoff_factor=1,
+        status_forcelist=[429, 500, 502, 503, 504],
+        allowed_methods=["HEAD", "GET", "OPTIONS"]
+    )
+    adapter = HTTPAdapter(max_retries=retry)
+    session.mount("https://", adapter)
+    session.mount("http://", adapter)
+    return session
+
+def download_asn_db():
+    """Downloads the optimized ASN CSV databases (IPv4 and IPv6) from sapics/ip-location-db."""
+    urls = {
+        "v4": ("https://raw.githubusercontent.com/sapics/ip-location-db/main/asn/asn-ipv4.csv", ASN_FILE_V4),
+        "v6": ("https://raw.githubusercontent.com/sapics/ip-location-db/refs/heads/main/asn/asn-ipv6.csv", ASN_FILE_V6)
+    }
+    
+    success = True
+    for ver, (url, filepath) in urls.items():
+        print(f"[i] Fetching ASN {ver.upper()} Database from {url}...")
+        try:
+            session = get_session()
+            r = session.get(url, headers=HEADERS, timeout=30)
+            r.raise_for_status()
+            
+            with open(filepath, 'wb') as f:
+                f.write(r.content)
+            print(f"[✓] ASN {ver.upper()} Database updated.")
+        except Exception as e:
+            print(f"[WARN] Could not fetch ASN {ver.upper()} DB: {e}")
+            success = False
+            
+    return success
+
+def load_asn_db():
+    """
+    Loads ASN CSVs into memory.
+    Returns a dict: {'v4': [(start, end, org), ...], 'v6': [(start, end, org), ...]}
+    """
+    asn_data = {'v4': [], 'v6': []}
+    
+    files = {
+        'v4': ASN_FILE_V4,
+        'v6': ASN_FILE_V6
+    }
+    
+    for ver, filepath in files.items():
+        if not os.path.exists(filepath):
+            continue
+        
+        try:
+            with open(filepath, 'r', encoding='utf-8') as f:
+                reader = csv.reader(f)
+                for row in reader:
+                    # Format: start_ip, end_ip, asn, org_name
+                    if len(row) < 4: continue
+                    try:
+                        if ver == 'v4':
+                            start_int = int(ipaddress.IPv4Address(row[0]))
+                            end_int = int(ipaddress.IPv4Address(row[1]))
+                        else:
+                            start_int = int(ipaddress.IPv6Address(row[0]))
+                            end_int = int(ipaddress.IPv6Address(row[1]))
+                            
+                        org_name = row[3]
+                        asn_data[ver].append((start_int, end_int, org_name))
+                    except ValueError:
+                        continue
+        except Exception as e:
+            print(f"[!] Error loading ASN {ver} DB: {e}")
+    
+    return asn_data
+
+def check_asn_hosting(ip_str, asn_db):
+    """
+    Checks if an IP belongs to a hosting provider using the ASN DB.
+    """
     try:
-        session = requests.Session()
-        resp = session.get("https://www.microsoft.com/en-us/download/details.aspx?id=56519", timeout=10, headers=HEADERS)
-        resp.raise_for_status()
-        match = re.search(r'ServiceTags_Public_(\d{8})\.json', resp.text)
-        if match:
-            date_str = match.group(1)
-            return f"https://download.microsoft.com/download/7/1/D/71D86715-5596-4529-9B13-DA13A5DE5B63/ServiceTags_Public_{date_str}.json"
-    except Exception as e:
-        print(f"[WARN] Could not fetch latest Azure filename: {e}")
-    # Fallback to current known-good (update manually every few months if needed)
-    return "https://download.microsoft.com/download/7/1/D/71D86715-5596-4529-9B13-DA13A5DE5B63/ServiceTags_Public_20251117.json"
+        ip_obj = ipaddress.ip_address(ip_str)
+        ip_int = int(ip_obj)
+    except ValueError:
+        return None 
+
+    # Select correct DB based on IP version
+    if ip_obj.version == 4:
+        db_list = asn_db.get('v4', [])
+    else:
+        db_list = asn_db.get('v6', [])
+
+    # Linear Search 
+    for start, end, org in db_list:
+        if start <= ip_int <= end:
+            return org
+    return None
+
+# --- DOWNLOADER / PARSER LOGIC ---
 
 def load_sources():
-    """Load typed source URLs from JSON config file."""
     if not os.path.exists(SOURCE_FILE):
-        raise FileNotFoundError(f"{SOURCE_FILE} not found.")
+        return {}
     with open(SOURCE_FILE, 'r') as f:
         data = json.load(f)
-    return data  # dict with keys: VPN, TOR, PROXY, CLOUD, VPN_API
+    return data
 
 def extract_ips_from_text(text):
     lines = text.splitlines()
@@ -66,8 +143,9 @@ def extract_ips_from_text(text):
         line = line.strip()
         if not line or line.startswith("#"):
             continue
-        if "," in line:
+        if "," in line and "{" not in line:
             line = line.split(",")[0].strip()
+        if len(line) < 3: continue 
         cleaned.add(line)
     return cleaned
 
@@ -91,24 +169,10 @@ def extract_ips_from_json(data):
             if isinstance(item, str):
                 ips.add(item)
             elif isinstance(item, dict):
-                for key in ["ip", "ipv4", "ipv6", "ip_prefix", "ipv4Prefix", "ipv6Prefix", "ip_address", "EntryIP"]:
+                for key in ["ip", "ipv4", "ipv6", "ip_prefix", "ipv4Prefix", "ipv6Prefix", "ip_address", "EntryIP", "station"]:
                     if key in item:
                         ips.add(item[key])
     return ips
-
-def get_session():
-    """Create a requests session with retry logic."""
-    session = requests.Session()
-    retry = Retry(
-        total=3,
-        backoff_factor=1,
-        status_forcelist=[429, 500, 502, 503, 504],
-        allowed_methods=["HEAD", "GET", "OPTIONS"]
-    )
-    adapter = HTTPAdapter(max_retries=retry)
-    session.mount("https://", adapter)
-    session.mount("http://", adapter)
-    return session
 
 def download_list(url):
     try:
@@ -116,32 +180,33 @@ def download_list(url):
         resp = session.get(url, headers=HEADERS, timeout=TIMEOUT)
         resp.raise_for_status()
         text = resp.text.strip()
+        
         if "application/json" in resp.headers.get("Content-Type", "") or text.startswith("{") or text.startswith("["):
             try:
                 data = json.loads(text)
                 return extract_ips_from_json(data)
             except Exception:
                 return extract_ips_from_text(text)
-        elif "," in text:
-            return extract_ips_from_text(text)
         else:
             return extract_ips_from_text(text)
     except Exception as e:
         print(f"[WARN] Could not fetch {url}: {e}")
         return set()
 
-def load_cached_ips(cache_path=None):
-    if cache_path is None:
-        cache_path = CACHE_FILE
-    if not os.path.exists(cache_path):
+def load_cached_ips():
+    """
+    Loads IPs from the cache file. 
+    If file doesn't exist, returns empty dict (does NOT create file here).
+    """
+    if not os.path.exists(CACHE_FILE):
         return {}
+
     cached = {}
-    with open(cache_path, 'r') as f:
+    with open(CACHE_FILE, 'r') as f:
         for line in f:
             line = line.strip()
             if not line:
                 continue
-            # format: IP|TYPE
             if "|" in line:
                 ip, t = line.split("|", 1)
                 cached[ip] = t
@@ -149,98 +214,185 @@ def load_cached_ips(cache_path=None):
                 cached[line] = "UNKNOWN"
     return cached
 
-def append_to_cache(entries, cache_path=None):
+def append_to_cache(entries):
+    """
+    Appends new entries to the cache file. Creates file if missing.
+    """
     if not entries:
         return
-    if cache_path is None:
-        cache_path = CACHE_FILE
-    with open(cache_path, 'a', encoding='utf-8') as f:
+    
+    # 'a' mode will create the file if it does not exist
+    with open(CACHE_FILE, 'a', encoding='utf-8') as f:
         for ip, t in entries.items():
-            # Safety filter: only allow real IPs/CIDRs and clean types
-            if isinstance(ip, str) and ('/' in ip or ip.replace('.', '').replace(':', '').isdigit()):
+            if isinstance(ip, str) and ('/' in ip or ip.replace('.', '').replace(':', '').isalnum()):
                 safe_type = t.replace('|', '').replace('\n', '').strip()
                 f.write(f"{ip}|{safe_type}\n")
 
-def refresh_cache(cache_path=None):
+def refresh_cache():
+    """
+    Downloads both blocklists and the ASN DB.
+    """
+    # 1. Download ASN DB First (v4 and v6)
+    download_asn_db()
+    
+    # 2. Download Blocklists
     typed_sources = load_sources()
-    cached = load_cached_ips(cache_path)
+    cached = load_cached_ips()
     total_new = {}
     
-    # Dynamically replace Azure URL with the latest one
-    azure_url = get_latest_azure()
-    print(f"[i] Using latest Azure URL: {azure_url}")
-    typed_sources["CLOUD"] = [azure_url if url == "https://download.microsoft.com/download/7/1/D/71D86715-5596-4529-9B13-DA13A5DE5B63/ServiceTags_Public_20251124.json" else url for url in typed_sources["CLOUD"]]
-    
+    print(f"[i] Starting Blocklist Update...")
     for t, urls in typed_sources.items():
+        if t == "ASN": continue 
         for url in urls:
-            print(f"[i] Fetching {url}")
+            print(f"    - Fetching {t}: {url[:50]}...")
             fetched = download_list(url)
             new_entries = {ip: t for ip in fetched if ip not in cached}
             if new_entries:
-                print(f"    + {len(new_entries)} new entries found for type {t}")
+                print(f"      + {len(new_entries)} new entries.")
                 total_new.update(new_entries)
                 cached.update(new_entries)
 
-    append_to_cache(total_new, cache_path)
-    print(f"[✓] Cache updated with {len(total_new)} new entries.")
-    return cached, len(total_new)  # Changed: Return tuple (data, count)
+    append_to_cache(total_new)
+    print(f"[✓] Blocklists updated with {len(total_new)} new entries.")
+    return cached, len(total_new)
 
 def load_networks_from_cache(cached_data):
-    """
-    Converts the cached dictionary {ip_str: type_str} into a list of 
-    (ip_network, type_str) tuples for the detector to use.
-    """
     all_networks = []
-    
-    # Handle the case where app.py passes the dictionary from refresh_cache
     if isinstance(cached_data, dict):
         iterator = cached_data.items()
     else:
-        # Fallback if passed a list of files (legacy support, though not used by app.py)
         return []
 
     for ip_str, ip_type in iterator:
         try:
-            # Create ip_network object for efficient matching
-            # strict=False allows bits set after the prefix length (common in some lists)
             net = ipaddress.ip_network(ip_str, strict=False)
             all_networks.append((net, ip_type))
         except ValueError:
             continue
-            
     return all_networks
 
-def is_vpn_ip(ip, networks):
+# --- MAIN DECISION LOGIC ---
+
+def is_vpn_ip(ip, networks, asn_db=None):
+    """
+    Detects if an IP is a VPN/Proxy.
+    Returns a tuple: (is_threat, info_string, asn_org)
+    """
+    asn_org = None
+    clean_ip = ip.strip()
+
     try:
-        ip_obj = ipaddress.ip_address(ip)
+        ip_obj = ipaddress.ip_address(clean_ip)
     except ValueError:
-        return None
-    
-    # networks is now a list of tuples: (ip_network_object, type_string)
+        # Attempt to handle IP:Port format
+        parsed = False
+        # IPv4 with port (e.g., 1.2.3.4:80)
+        if '.' in clean_ip and ':' in clean_ip:
+            try:
+                clean_ip = clean_ip.split(':')[0]
+                ip_obj = ipaddress.ip_address(clean_ip)
+                parsed = True
+            except ValueError:
+                pass
+        
+        # IPv6 with brackets (e.g., [::1]:80)
+        if not parsed and clean_ip.startswith('[') and ']:' in clean_ip:
+            try:
+                clean_ip = clean_ip.split(']:')[0].strip('[')
+                ip_obj = ipaddress.ip_address(clean_ip)
+                parsed = True
+            except ValueError:
+                pass
+
+        if not parsed:
+            return (None, "Invalid IP Format", None)
+
+    # 0. Always fetch ASN if DB is available
+    if asn_db:
+        asn_org = check_asn_hosting(clean_ip, asn_db)
+
+    # 1. Check Blocklists (Specific Lists)
     for net, t in networks:
         if ip_obj in net:
-            return t
-    return None
+            return (True, f"Matched Blocklist: {t}", asn_org)
 
-def print_usage():
-    print("Usage: python vpn_checker.py <IPv4 or IPv6 address>")
-    sys.exit(1)
+    # 2. Check ASN / Hosting (Broad Ownership Check)
+    if asn_org:
+        # Keywords that indicate non-residential, likely VPN/Proxy infrastructure
+        hosting_keywords = [
+            'AMAZON', 'GOOGLE', 'MICROSOFT', 'DIGITALOCEAN', 'HETZNER', 
+            'OVH', 'M247', 'LEASEWEB', 'DATACAMP', 'LINODE', 'VULTR', 
+            'CHOOPA', 'ORACLE', 'ALIBABA', 'TENCENT', 'FASTLY', 'CLOUDFLARE',
+            'AKAMAI', 'CDN77', 'HOSTINGER', 'CONTABO', 'NORDVPN', 'EXPRESSVPN'
+        ]
+        org_upper = asn_org.upper()
+        
+        for keyword in hosting_keywords:
+            if keyword in org_upper:
+                return (True, f"Matched Hosting Keyword: {asn_org}", asn_org)
+        
+        return (False, f"Organization: {asn_org}", asn_org)
+
+    return (False, "Unknown Organization (Not in any list)", None)
 
 if __name__ == "__main__":
-    if len(sys.argv) != 2:
-        print_usage()
+    if len(sys.argv) < 2:
+        print("Usage: python vpn_checker.py <IP_Address> [refresh]")
+        print("Add 'refresh' to update databases manually.")
+        sys.exit(1)
 
-    target = sys.argv[1]
+    # Simple CLI argument parsing
+    target = None
+    should_refresh = False
+    
+    # Check if cache file exists; if not, force refresh
+    if not os.path.exists(CACHE_FILE):
+        print(f"[!] Cache file not found at {CACHE_FILE}.")
+        print("[!] Auto-triggering data refresh to populate lists...")
+        should_refresh = True
+    
+    # Check args for manual refresh override
+    for arg in sys.argv[1:]:
+        if arg.lower() == "refresh":
+            should_refresh = True
+        else:
+            target = arg
 
-    print("[i] Refreshing VPN/IP cache (only new entries will be added)...")
-    cached, _ = refresh_cache()  # Changed: Unpack tuple (ignore count here)
-
-    print("[i] Loading networks from cache...")
-    nets = load_networks_from_cache(cached)
-
-    print(f"[i] Checking IP: {target}")
-    ip_type = is_vpn_ip(target, nets)
-    if ip_type:
-        print(f"→ 🚨 IP detected as {ip_type} (VPN / Proxy / Tor / Cloud).")
+    if should_refresh:
+        refresh_cache()
+        # Reload after refresh
+        cached_data = load_cached_ips()
+        nets = load_networks_from_cache(cached_data)
+        asn_data = load_asn_db()
     else:
-        print("→ ✅ IP not found in VPN / Proxy / Tor / Cloud lists.")
+        # Quietly load data
+        cached_data = load_cached_ips()
+        nets = load_networks_from_cache(cached_data)
+        asn_data = load_asn_db()
+
+    if target:
+        # Perform Check
+        is_threat, info, asn_org = is_vpn_ip(target, nets, asn_db=asn_data)
+        
+        # --- FINAL OUTPUT FORMAT ---
+        print("-" * 50)
+        print(f"Target IP: {target}")
+        print("-" * 50)
+        
+        if is_threat:
+            print(f"🚨 STATUS: THREAT DETECTED")
+            print(f"ℹ️  INFO:   {info}")
+        elif is_threat is None:
+            print(f"⚠️ STATUS: INVALID INPUT")
+            print(f"ℹ️  INFO:   {info}")
+        else:
+            print(f"✅ STATUS: CLEAN")
+            print(f"ℹ️  INFO:   {info}")
+        
+        if asn_org:
+            print(f"🏢 ASN:    {asn_org}")
+            
+        print("-" * 50)
+    else:
+        if not should_refresh:
+            print("[!] Please provide an IP address to check.")
